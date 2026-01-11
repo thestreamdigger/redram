@@ -1,0 +1,152 @@
+# Exemplo de configuração ALSA para bit perfect playback
+# Copie para: /etc/asound.conf ou ~/.asoundrc
+# 
+# CUIDADO: Esta configuração força bit perfect em todo o sistema
+# Teste primeiro antes de aplicar permanentemente
+
+# ═══════════════════════════════════════════════════════════
+# CONFIGURAÇÃO BIT PERFECT
+# ═══════════════════════════════════════════════════════════
+
+# Dispositivo PCM padrão - hardware direto
+defaults.pcm.card 0
+defaults.pcm.device 0
+
+# Desabilitar conversão automática de sample rate
+# Isso força aplicações a usar a taxa correta do hardware
+defaults.pcm.rate_converter "samplerate_best"
+
+# Dispositivo de controle padrão
+defaults.ctl.card 0
+
+# ═══════════════════════════════════════════════════════════
+# DEFINIÇÃO DE DISPOSITIVO BIT PERFECT
+# ═══════════════════════════════════════════════════════════
+
+pcm.bitperfect {
+    type hw
+    card 0
+    device 0
+    
+    # Forçar parâmetros de CD Audio
+    rate 44100
+    format S16_LE
+    channels 2
+}
+
+# Dispositivo de controle para o dispositivo bit perfect
+ctl.bitperfect {
+    type hw
+    card 0
+}
+
+# ═══════════════════════════════════════════════════════════
+# DISPOSITIVO COM BUFFER OTIMIZADO
+# ═══════════════════════════════════════════════════════════
+
+pcm.optimized {
+    type plug
+    slave {
+        pcm "hw:0,0"
+        
+        # Buffer grande para evitar underruns
+        period_size 4096
+        buffer_size 16384
+        
+        # Parâmetros fixos
+        rate 44100
+        format S16_LE
+        channels 2
+    }
+}
+
+# ═══════════════════════════════════════════════════════════
+# DISPOSITIVO DMIX (Múltiplas aplicações - NÃO bit perfect)
+# ═══════════════════════════════════════════════════════════
+
+# Descomente apenas se precisar múltiplas aplicações simultaneamente
+# AVISO: Isto NÃO é bit perfect devido ao mixing em software
+
+# pcm.dmixed {
+#     type dmix
+#     ipc_key 1024
+#     slave {
+#         pcm "hw:0,0"
+#         rate 44100
+#         period_size 4096
+#         buffer_size 16384
+#     }
+# }
+
+# ═══════════════════════════════════════════════════════════
+# EXEMPLOS DE USO
+# ═══════════════════════════════════════════════════════════
+
+# Para usar em seu código Python:
+#   import alsaaudio
+#   pcm = alsaaudio.PCM(device='bitperfect')
+#
+# Para testar com aplay:
+#   aplay -D bitperfect arquivo.wav
+#
+# Para testar parâmetros:
+#   speaker-test -D bitperfect -r 44100 -c 2 -f S16_LE
+
+# ═══════════════════════════════════════════════════════════
+# VERIFICAÇÃO
+# ═══════════════════════════════════════════════════════════
+
+# Listar dispositivos PCM disponíveis:
+#   aplay -L
+#
+# Verificar configuração atual durante playback:
+#   cat /proc/asound/card0/pcm0p/sub0/hw_params
+#
+# Deve mostrar:
+#   format: S16_LE
+#   rate: 44100 (44100/1)
+#   channels: 2
+
+# ═══════════════════════════════════════════════════════════
+# TROUBLESHOOTING
+# ═══════════════════════════════════════════════════════════
+
+# Erro "Device or resource busy":
+#   - Outro aplicativo está usando o device
+#   - Pare PulseAudio: systemctl --user stop pulseaudio
+#   - Ou use dmix (mas perde bit perfect)
+#
+# Erro "Invalid argument":
+#   - Hardware não suporta os parâmetros
+#   - Verifique com: aplay -l e hw_params
+#
+# Cliques ou pops no áudio:
+#   - Aumente period_size e buffer_size
+#   - Exemplo: period_size 8192, buffer_size 32768
+
+# ═══════════════════════════════════════════════════════════
+# HARDWARE ESPECÍFICO
+# ═══════════════════════════════════════════════════════════
+
+# Para DAC USB (geralmente card 1):
+#   Altere "card 0" para "card 1" em todas as definições acima
+#
+# Para descobrir número da sua placa:
+#   cat /proc/asound/cards
+#
+# Exemplo de saída:
+#   0 [Headphones]: bcm2835_headphonos - bcm2835 Headphones
+#   1 [DAC]: USB-Audio - My USB DAC
+
+# ═══════════════════════════════════════════════════════════
+# APLICAÇÃO
+# ═══════════════════════════════════════════════════════════
+
+# Para aplicar sistema-wide:
+#   sudo cp asound.conf.example /etc/asound.conf
+#
+# Para aplicar apenas para seu usuário:
+#   cp asound.conf.example ~/.asoundrc
+#
+# Testar sem aplicar permanentemente:
+#   ALSA_CONFIG_PATH=./asound.conf.example aplay -D bitperfect teste.wav

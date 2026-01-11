@@ -1,0 +1,35 @@
+# RedRAM - Python Dependencies
+# For Raspberry Pi OS (Debian/Ubuntu based)
+
+# === CORE DEPENDENCIES ===
+
+# Python ALSA bindings - bit perfect playback (RAM mode)
+# Install: sudo apt-get install python3-alsaaudio
+pyalsaaudio>=0.9.0
+
+# MPV - streaming playback (level 0)
+# Uses mpv subprocess (no python bindings needed)
+# Install: sudo apt-get install mpv
+
+# Serial communication - HEAD display support (MCUB protocol)
+pyserial>=3.5
+
+# === OPTIONAL DEPENDENCIES ===
+
+# GPIO - physical button control
+gpiozero>=1.6.0; platform_machine=="armv7l" or platform_machine=="aarch64"
+
+# === EXTERNAL TOOLS (not Python) ===
+# Install via apt-get:
+#
+# mpv - streaming CD playback
+#   sudo apt-get install mpv
+#
+# cdparanoia - CD extraction with error correction
+#   sudo apt-get install cdparanoia
+#
+# libcdio-utils - CD-Text support (cd-info)
+#   sudo apt-get install libcdio-utils
+#
+# sg3-utils - for Apple SuperDrive
+#   sudo apt-get install sg3-utils
