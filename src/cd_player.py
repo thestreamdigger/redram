@@ -193,12 +193,12 @@ class BitPerfectPlayer(AudioTransport):
                         self._current_track_index = self._next_track_index
 
                         if self.on_track_end:
-                            self.on_track_end()
+                            threading.Thread(target=self.on_track_end, daemon=True, name="TrackEndCB").start()
                         continue
                     else:
                         self.state = PlayerState.STOPPED
                         if self.on_track_end:
-                            self.on_track_end()
+                            threading.Thread(target=self.on_track_end, daemon=True, name="TrackEndCB").start()
                         break
 
                 remaining = self.total_size - self.current_position
