@@ -20,8 +20,8 @@ class TerminalUI:
         self.head = HeadController()
         self.head_connected = False
 
-        self.controller.on_track_change = self._on_track_change
-        self.controller.on_cd_loaded = self._on_cd_loaded
+        self.controller.on('track_change', self._on_track_change)
+        self.controller.on('cd_loaded', self._on_cd_loaded)
 
     def _on_track_change(self, track_num, total_tracks):
         logger.info(f"TRACK: {track_num}/{total_tracks}")

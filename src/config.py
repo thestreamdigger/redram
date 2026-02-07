@@ -1,10 +1,20 @@
 import subprocess
 import re
 import os
+import json
 import shutil
 import logging
 
 logger = logging.getLogger(__name__)
+
+_SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', 'settings.json')
+
+def _load_settings():
+    try:
+        with open(_SETTINGS_PATH) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 def _parse_aplay_output():
@@ -134,6 +144,10 @@ EXTRACTION_LEVELS = {
 }
 DEFAULT_EXTRACTION_LEVEL = 1
 
+# autoplay after load — per extraction level, or True/False for all
+# default: only streaming (level 0) autoplays
+AUTOPLAY_ON_LOAD = {0: True}
+
 LOG_LEVEL = 'DEBUG'
 LOG_FILE = '/home/pi/redram/redram.log'
 
@@ -141,6 +155,24 @@ VERIFY_SAMPLE_RATE = True
 VERIFY_VOLUME = True
 
 RAM_SAFETY_MARGIN = 0.15
+
+# override defaults from config/settings.json
+_settings = _load_settings()
+for _key, _val in _settings.items():
+    _upper = _key.upper()
+    if _upper in globals():
+        globals()[_upper] = _val
+        logger.debug(f"config: {_upper} = {_val} (from settings.json)")
+
+
+def should_autoplay(extraction_level: int) -> bool:
+    if isinstance(AUTOPLAY_ON_LOAD, bool):
+        return AUTOPLAY_ON_LOAD
+    if isinstance(AUTOPLAY_ON_LOAD, dict):
+        # JSON keys are strings, python defaults are int
+        return AUTOPLAY_ON_LOAD.get(extraction_level,
+               AUTOPLAY_ON_LOAD.get(str(extraction_level), False))
+    return False
 
 
 def get_available_ram_mb(ram_path: str = None) -> float:

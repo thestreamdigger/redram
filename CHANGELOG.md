@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - Polymorphic Transport
+
+### Added
+- **Autoplay on load**: Configurable per extraction level via `config/settings.json`
+- **`config/settings.json`**: User settings file, overrides any config.py default
+- **`navigate_to()`**: Unified track navigation on AudioTransport ABC
+- **`prepare_next()`**: Gapless preload on AudioTransport ABC (no-op for streaming)
+- **`get_current_track_index()`** / **`get_track_count()`**: Abstract getters on AudioTransport
+- **Listener infrastructure**: `controller.on('event', callback)` replaces Optional[Callable] monkey-patching
+
+### Changed
+- **CDPlayerController**: `play()`, `next()`, `prev()`, `goto()`, `stop()`, `seek()` fully polymorphic — zero `if is_direct_mode` branches for navigation
+- **Unified `_on_track_end`**: Single handler for both RAM and streaming, detects gapless via index comparison
+- **`prev()` unified**: Both modes now restart track if position > 2s (was skip-only in streaming)
+- **BitPerfectPlayer**: Constructor accepts `data_provider` callable — player fetches its own PCM data
+- **Gapless index tracking**: `_current_track_index` updated during gapless swap in playback loop
+- **LED setup**: Clean `controller.on()` registration, no more `original_on_cd_loaded` wrapper chains
+- **Source of truth**: `sequencer.current_index` for current track, `sequencer.total_tracks` for count
+
+### Removed
+- `_load_and_preload()` — replaced by `transport.navigate_to()` + `_preload_next()`
+- `_on_streaming_track_end()` — merged into unified `_on_track_end()`
+- `load_track_by_index()` from AudioTransport ABC — replaced by `navigate_to()`
+- `next_track()` / `prev_track()` from DirectCDPlayer — dead code, navigation via sequencer
+- 14 `if is_direct_mode` behavioral branches from controller
+- Verbose docstrings and comments across all modules (minimalist style)
+
 ## [0.7.0] - Sequencer Consolidation
 
 ### Fixed

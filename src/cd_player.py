@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class BitPerfectPlayer(AudioTransport):
 
-    def __init__(self, device: str = None):
+    def __init__(self, device: str = None, data_provider=None, track_count: int = 0):
         self.device = device or config.ALSA_DEVICE
         self.state = PlayerState.STOPPED
         self.pcm: Optional[alsaaudio.PCM] = None
@@ -33,6 +33,11 @@ class BitPerfectPlayer(AudioTransport):
         self._chunks_written = 0
         self._underruns = 0
         self._last_write_time = 0
+
+        self._data_provider = data_provider
+        self._current_track_index = -1
+        self._track_count = track_count
+        self._next_track_index = -1
 
         logger.debug(f"PLAYER: initialized with device={self.device} (lazy ALSA)")
 
@@ -96,7 +101,6 @@ class BitPerfectPlayer(AudioTransport):
         return checks
 
     def load_pcm_data(self, pcm_data: bytes):
-        """Load PCM audio data for playback. Used by controller after extraction."""
         logger.debug(f"PLAYER: load_pcm_data called, data size={len(pcm_data)} bytes")
         start_time = time.time()
 
@@ -219,6 +223,7 @@ class BitPerfectPlayer(AudioTransport):
                         self.current_position = 0
                         self.total_size = len(self.next_track_data)
                         self.next_track_data = None
+                        self._current_track_index = self._next_track_index
 
                         if self.on_track_end:
                             self.on_track_end()
@@ -288,6 +293,35 @@ class BitPerfectPlayer(AudioTransport):
 
     def get_state(self) -> PlayerState:
         return self.state
+
+    def navigate_to(self, track_index, auto_play=True):
+        if not self._data_provider:
+            return False
+        pcm_data = self._data_provider(track_index + 1)  # provider uses 1-based
+        if not pcm_data:
+            return False
+        self.load_pcm_data(pcm_data)
+        self._current_track_index = track_index
+        if auto_play:
+            self.play()
+        return True
+
+    def prepare_next(self, track_index):
+        if not self._data_provider:
+            return
+        if track_index < 0:
+            self.preload_next_track(None)
+            self._next_track_index = -1
+            return
+        pcm_data = self._data_provider(track_index + 1)
+        self.preload_next_track(pcm_data)
+        self._next_track_index = track_index
+
+    def get_current_track_index(self):
+        return self._current_track_index
+
+    def get_track_count(self):
+        return self._track_count
 
     def get_stats(self) -> dict:
         return {

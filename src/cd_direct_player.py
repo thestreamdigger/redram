@@ -38,7 +38,6 @@ class DirectCDPlayer(AudioTransport):
 
         self.on_track_end: Optional[Callable] = None
 
-        # Pre-calculate chapter start times (O(1) lookup instead of O(n))
         self._chapter_starts: List[float] = self._build_chapter_starts()
 
         logger.debug(f"DirectCDPlayer initialized: cd={self.cd_device}, alsa={self.alsa_device}, tracks={len(self.tracks)}")
@@ -54,31 +53,27 @@ class DirectCDPlayer(AudioTransport):
             'mpv',
             '--idle=yes',
             '--no-video',
-            # Audio output (ALSA direct on Raspberry Pi OS)
+            # ALSA direct
             '--ao=alsa',
             f'--audio-device=alsa/{self.alsa_device}',
-            # Bit-perfect: force CD format (44.1kHz/16bit/stereo)
+            # CD format (44.1kHz/16bit/stereo)
             '--audio-samplerate=44100',
             '--audio-format=s16',
             '--audio-channels=stereo',
-            # No processing (bit-perfect)
+            # bit-perfect: no processing
             '--audio-pitch-correction=no',
             '--audio-normalize-downmix=no',
             '--alsa-resample=no',
             '--replaygain=no',
             '--af=',
             '--audio-swresample-o=',
-            # Volume
             '--volume=100',
             '--volume-max=100',
-            # Gapless chapter transitions
-            '--gapless-audio=weak',
-            # Buffer: safe values for CD streaming on Raspberry Pi
+            '--gapless-audio=yes',
+            # buffer for CD streaming on RPi
             '--audio-buffer=2',
             '--demuxer-readahead-secs=5',
-            # CD-specific
             '--cdda-paranoia=0',
-            # IPC
             '--no-terminal',
             '--really-quiet',
             f'--input-ipc-server={self._ipc_socket}',
@@ -105,7 +100,6 @@ class DirectCDPlayer(AudioTransport):
             return False
 
     def _ensure_ipc_conn(self) -> bool:
-        """Ensure persistent IPC connection is open."""
         if self._ipc_conn:
             return True
         if not self._ipc_socket:
@@ -123,7 +117,6 @@ class DirectCDPlayer(AudioTransport):
             return False
 
     def _close_ipc_conn(self):
-        """Close persistent IPC connection."""
         if self._ipc_conn:
             try:
                 self._ipc_conn.close()
@@ -136,7 +129,6 @@ class DirectCDPlayer(AudioTransport):
             return {"error": "no socket"}
 
         with self._ipc_lock:
-            # Try persistent connection first
             if self._ensure_ipc_conn():
                 try:
                     msg = json.dumps({"command": command}) + "\n"
@@ -150,7 +142,6 @@ class DirectCDPlayer(AudioTransport):
                     logger.debug(f"DirectCDPlayer: persistent IPC failed, reconnecting: {e}")
                     self._close_ipc_conn()
 
-            # Fallback: new connection
             try:
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.settimeout(0.1)
@@ -169,8 +160,7 @@ class DirectCDPlayer(AudioTransport):
         return result.get("data")
 
     def _build_chapter_starts(self) -> List[float]:
-        """Pre-calculate chapter start times for O(1) lookup."""
-        starts = [0.0]  # Track 1 starts at 0
+        starts = [0.0]
         cumulative = 0.0
         for track in self.tracks:
             if hasattr(track, 'duration_seconds'):
@@ -179,7 +169,6 @@ class DirectCDPlayer(AudioTransport):
         return starts
 
     def _get_chapter_start(self, track_num: int) -> float:
-        """Get start time for track (1-indexed). O(1) lookup."""
         if 1 <= track_num <= len(self._chapter_starts):
             return self._chapter_starts[track_num - 1]
         return 0.0
@@ -190,23 +179,12 @@ class DirectCDPlayer(AudioTransport):
             if threading.current_thread() != self._monitor_thread:
                 self._monitor_thread.join(timeout=0.2)
 
-    def _handle_track_end(self, reason: str):
-        if self.state == PlayerState.PLAYING:
-            logger.info(f"DirectCDPlayer: track {self.current_track} ended ({reason})")
-            self.state = PlayerState.STOPPED
-            self._playback_started = False
-            if self.on_track_end:
-                threading.Thread(
-                    target=self.on_track_end,
-                    daemon=True,
-                    name="TrackEndCallback"
-                ).start()
-
     def _monitor_playback(self):
         logger.debug("DirectCDPlayer: monitor thread started")
 
         chapter_start = self._get_chapter_start(self.current_track)
 
+        # wait for audio to actually start
         start_wait = time.time()
         while not self._stop_event.is_set():
             pos = self._get_property("time-pos")
@@ -223,27 +201,44 @@ class DirectCDPlayer(AudioTransport):
                 self._playback_started = True
                 break
 
-            # Use event.wait() instead of sleep() for quick response to stop
             if self._stop_event.wait(timeout=0.1):
-                return  # Stop requested
+                return
 
-        # Short delay before monitoring, but interruptible
         if self._stop_event.wait(timeout=0.2):
             return
 
+        # monitor chapter changes and EOF
         expected_chapter = self.current_track - 1
         while not self._stop_event.is_set():
             chapter = self._get_property("chapter")
+
             if chapter is not None and chapter != expected_chapter:
-                self._handle_track_end(f"chapter changed to {chapter + 1}")
-                break
+                new_track = chapter + 1
+                logger.info(f"DirectCDPlayer: chapter advanced to track {new_track}")
+                self.current_track = new_track
+                expected_chapter = chapter
+
+                if self.on_track_end:
+                    threading.Thread(
+                        target=self.on_track_end,
+                        daemon=True,
+                        name="TrackAdvanceCB"
+                    ).start()
+                continue
 
             eof = self._get_property("eof-reached")
             if eof is True:
-                self._handle_track_end("EOF")
+                self.state = PlayerState.STOPPED
+                self._playback_started = False
+                logger.info("DirectCDPlayer: EOF reached")
+                if self.on_track_end:
+                    threading.Thread(
+                        target=self.on_track_end,
+                        daemon=True,
+                        name="DiscEndCB"
+                    ).start()
                 break
 
-            # Use event.wait() for quick response to stop
             self._stop_event.wait(timeout=0.3)
 
         logger.debug("DirectCDPlayer: monitor thread stopped")
@@ -266,13 +261,9 @@ class DirectCDPlayer(AudioTransport):
         self._last_position_update = 0.0
 
         if self._cd_loaded_in_mpv:
-            # Fast path: CD already loaded, just switch chapter
             logger.debug(f"DirectCDPlayer: seeking to chapter {track_num - 1}")
             self._send_ipc(["set_property", "chapter", track_num - 1])
         else:
-            # First load: need to load CD into mpv
-            # NOTE: cdda:// has issues with mpv idle mode (see mpv#7384)
-            # Streaming mode may not work reliably - use RAM mode for production
             cd_url = f'cdda://{self.cd_device}'
             result = self._send_ipc(["loadfile", cd_url, "replace"])
             if result.get("error") != "success":
@@ -283,7 +274,11 @@ class DirectCDPlayer(AudioTransport):
             self._cd_loaded_in_mpv = True
 
             if track_num > 1:
-                time.sleep(0.3)
+                for _ in range(15):
+                    time.sleep(0.1)
+                    ch = self._get_property("chapter")
+                    if ch is not None:
+                        break
                 self._send_ipc(["set_property", "chapter", track_num - 1])
 
         logger.info(f"DirectCDPlayer: playing track {track_num}")
@@ -298,7 +293,6 @@ class DirectCDPlayer(AudioTransport):
         return True
 
     def play(self):
-        """Start or resume playback. Implements AudioTransport interface."""
         if self.state == PlayerState.PAUSED:
             self.resume()
         elif self.state == PlayerState.STOPPED and self.current_track > 0:
@@ -328,17 +322,20 @@ class DirectCDPlayer(AudioTransport):
         self._playback_started = False
         logger.info("DirectCDPlayer: stopped")
 
-    def next_track(self):
-        if self.current_track < len(self.tracks):
-            self.play_track(self.current_track + 1)
-        else:
-            logger.debug("DirectCDPlayer: already at last track")
+    def navigate_to(self, track_index, auto_play=True):
+        track_num = track_index + 1
+        if track_num < 1 or track_num > len(self.tracks):
+            return False
+        if auto_play:
+            return self.play_track(track_num)
+        self.current_track = track_num
+        return True
 
-    def prev_track(self):
-        if self.current_track > 1:
-            self.play_track(self.current_track - 1)
-        else:
-            logger.debug("DirectCDPlayer: already at first track")
+    def get_current_track_index(self):
+        return self.current_track - 1 if self.current_track > 0 else -1
+
+    def get_track_count(self):
+        return len(self.tracks)
 
     def get_state(self) -> PlayerState:
         return self.state
@@ -378,21 +375,12 @@ class DirectCDPlayer(AudioTransport):
         return 0.0
 
     def seek(self, position_seconds: float) -> None:
-        """Seek within current track. Limited support via mpv chapter-relative seek."""
         if self.current_track < 1 or self.state == PlayerState.STOPPED:
             return
         chapter_start = self._get_chapter_start(self.current_track)
         absolute_pos = chapter_start + position_seconds
         self._send_ipc(["seek", absolute_pos, "absolute"])
         logger.info(f"DirectCDPlayer: seek to {position_seconds:.1f}s")
-
-    def load_track_by_index(self, track_index: int) -> bool:
-        """Load track by 0-based index. Implements AudioTransport interface."""
-        track_num = track_index + 1  # Convert to 1-based
-        if track_num < 1 or track_num > len(self.tracks):
-            return False
-        self.current_track = track_num
-        return True
 
     def cleanup(self):
         logger.debug("DirectCDPlayer: cleanup called")

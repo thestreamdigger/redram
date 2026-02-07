@@ -1,5 +1,5 @@
 """
-Neopixel WS2812 LED controller - visual status feedback
+Neopixel WS2812 LED controller
 """
 
 import logging
@@ -32,7 +32,7 @@ class LEDStatus:
 
 
 class NeopixelController:
-    
+
     def __init__(self):
         self.enabled = config.LED_ENABLED and LED_AVAILABLE
         self.strip: Optional[PixelStrip] = None
@@ -40,7 +40,7 @@ class NeopixelController:
         self.animation_thread: Optional[threading.Thread] = None
         self.running = False
         self.brightness = config.LED_BRIGHTNESS
-        
+
         self.colors = {
             LEDStatus.OFF: (0, 0, 0),
             LEDStatus.READY: (0, 0, 255),
@@ -50,10 +50,10 @@ class NeopixelController:
             LEDStatus.PAUSED: (0, 128, 0),
             LEDStatus.ERROR: (255, 0, 0),
         }
-        
+
         if self.enabled:
             self._init_led()
-    
+
     def _init_led(self):
         try:
             self.strip = PixelStrip(
@@ -73,7 +73,7 @@ class NeopixelController:
         except Exception as e:
             logger.error(f"error initializing led: {e}")
             self.enabled = False
-    
+
     def _set_color(self, color: Tuple[int, int, int], led_index: int = 0):
         if not self.enabled or not self.strip:
             return
@@ -84,7 +84,7 @@ class NeopixelController:
             self.strip.show()
         except Exception as e:
             logger.error(f"error setting led color: {e}")
-    
+
     def _set_all_colors(self, color: Tuple[int, int, int]):
         if not self.enabled or not self.strip:
             return
@@ -96,17 +96,17 @@ class NeopixelController:
             self.strip.show()
         except Exception as e:
             logger.error(f"error setting colors: {e}")
-    
+
     def _animation_loop(self):
         while self.running:
             try:
                 if not self.enabled or not self.strip:
                     time.sleep(0.1)
                     continue
-                
+
                 status = self.current_status
                 color = self.colors.get(status, (0, 0, 0))
-                
+
                 if status == LEDStatus.OFF:
                     self._set_all_colors((0, 0, 0))
                     time.sleep(0.5)
@@ -141,34 +141,29 @@ class NeopixelController:
                     else:
                         self._set_all_colors((0, 0, 0))
                     time.sleep(0.05)
-                
+
             except Exception as e:
                 logger.error(f"error in animation loop: {e}")
                 time.sleep(0.5)
-    
+
     def set_status(self, status: str):
-        if status in [LEDStatus.OFF, LEDStatus.READY, LEDStatus.LOADING, 
+        if status in [LEDStatus.OFF, LEDStatus.READY, LEDStatus.LOADING,
                       LEDStatus.LOADED, LEDStatus.PLAYING, LEDStatus.PAUSED, LEDStatus.ERROR]:
             self.current_status = status
             logger.debug(f"LED status: {status}")
         else:
             logger.warning(f"invalid status: {status}")
-    
+
     def on_loading_progress(self, track_num: int, total_tracks: int, status: str):
-        """Callback de progresso do carregamento"""
-        if status == "detecting":
-            self.set_status(LEDStatus.LOADING)
-        elif status == "reading_toc":
-            self.set_status(LEDStatus.LOADING)
-        elif status == "extracting":
+        if status in ("detecting", "reading_toc", "extracting"):
             self.set_status(LEDStatus.LOADING)
         elif status == "complete":
             self.set_status(LEDStatus.LOADED)
-    
+
     def on_cd_loaded(self, total_tracks: int):
         self.set_status(LEDStatus.LOADED)
         logger.debug(f"LED: cd loaded, {total_tracks} tracks")
-    
+
     def on_playback_state(self, is_playing: bool, is_paused: bool, cd_loaded: bool = False):
         if is_playing:
             self.set_status(LEDStatus.PLAYING)
@@ -178,7 +173,7 @@ class NeopixelController:
             self.set_status(LEDStatus.LOADED)
         else:
             self.set_status(LEDStatus.READY)
-    
+
     def on_error(self):
         self.set_status(LEDStatus.ERROR)
 
@@ -192,65 +187,45 @@ class NeopixelController:
         self.running = False
         if self.animation_thread:
             self.animation_thread.join(timeout=1)
-        
+
         if self.strip:
             try:
                 self._set_all_colors((0, 0, 0))
                 self.strip.show()
             except Exception:
                 pass
-        
+
         logger.info("LED cleanup done")
 
 
 def setup_led_controller(controller) -> Optional[NeopixelController]:
     import time
     from cd_player import PlayerState
-    
+
     led = NeopixelController()
-    
+
     if not led.is_enabled():
         logger.info("led disabled or not available")
         return None
-    
-    # Configurar callback de progresso
-    def on_loading_progress(track_num, total_tracks, status):
-        led.on_loading_progress(track_num, total_tracks, status)
-    
-    controller.on_loading_progress = on_loading_progress
-    
-    # Configurar callbacks
-    original_on_cd_loaded = controller.on_cd_loaded
-    def on_cd_loaded_wrapper(total_tracks):
-        led.on_cd_loaded(total_tracks)
-        if original_on_cd_loaded:
-            original_on_cd_loaded(total_tracks)
-    
-    original_on_status_change = controller.on_status_change
-    def on_status_change_wrapper(status):
-        if status == "disc_end":
-            led.on_no_cd()
-        if original_on_status_change:
-            original_on_status_change(status)
-    
-    controller.on_cd_loaded = on_cd_loaded_wrapper
-    controller.on_status_change = on_status_change_wrapper
+
+    controller.on('loading_progress', led.on_loading_progress)
+    controller.on('cd_loaded', lambda total: led.on_cd_loaded(total))
+    controller.on('status_change', lambda s: led.on_no_cd() if s == "disc_end" else None)
 
     def monitor_playback():
         while led.running:
             try:
                 state = controller.get_state()
-                is_playing = state == PlayerState.PLAYING
-                is_paused = state == PlayerState.PAUSED
-                cd_loaded = controller.is_cd_loaded()
-                led.on_playback_state(is_playing, is_paused, cd_loaded)
+                led.on_playback_state(
+                    state == PlayerState.PLAYING,
+                    state == PlayerState.PAUSED,
+                    controller.is_cd_loaded()
+                )
                 time.sleep(0.5)
             except Exception:
                 pass
-    
-    playback_thread = threading.Thread(target=monitor_playback, daemon=True)
-    playback_thread.start()
-    
+
+    threading.Thread(target=monitor_playback, daemon=True).start()
+
     logger.info("[OK] LED connected to controller")
     return led
-
