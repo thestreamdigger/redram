@@ -1,13 +1,6 @@
-"""
-Audio transport interface — polymorphic playback backend
-"""
-
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Optional, Callable
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class PlayerState(Enum):
@@ -45,17 +38,13 @@ class AudioTransport(ABC):
         return self.get_state() == PlayerState.PLAYING
 
     def navigate_to(self, track_index: int, auto_play: bool = True) -> bool:
-        """Navigate to track (0-based). Loads and optionally starts playback."""
         return False
 
     def prepare_next(self, track_index: int) -> None:
-        """Prepare next track for gapless. -1 to clear. No-op by default."""
         pass
 
     @abstractmethod
-    def get_current_track_index(self) -> int:
-        """Current track index (0-based), or -1 if none loaded."""
-        pass
+    def get_current_track_index(self) -> int: pass
 
     @abstractmethod
     def get_track_count(self) -> int: pass

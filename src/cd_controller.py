@@ -79,7 +79,6 @@ class CDPlayerController:
             self.superdrive.enable()
 
     def load(self, progress_callback: Optional[Callable] = None, extraction_level: int = None) -> tuple:
-        logger.info("starting cd load")
 
         level = extraction_level if extraction_level is not None else config.DEFAULT_EXTRACTION_LEVEL
 
@@ -90,12 +89,12 @@ class CDPlayerController:
 
         if result[0] and config.should_autoplay(level):
             self.play()
-            logger.info(f"autoplay (level {level})")
+            logger.info(f"autoplay level {level}")
 
         return result
 
     def _load_streaming_mode(self, progress_callback: Optional[Callable] = None) -> tuple:
-        logger.info("loading in streaming mode (level 0)")
+        logger.info("streaming mode")
 
         self._wake_transport(progress_callback)
 
@@ -108,7 +107,7 @@ class CDPlayerController:
             return (False, status)
 
         tracks = self.get_scanned_tracks()
-        logger.info(f"streaming mode: {len(tracks)} tracks detected")
+        logger.info(f"streaming: {len(tracks)} tracks")
 
         self.direct_player = DirectCDPlayer(tracks=tracks)
         self.direct_player.on_track_end = self._on_track_end
@@ -119,7 +118,7 @@ class CDPlayerController:
 
         self.transport.navigate_to(0, auto_play=False)
 
-        logger.info("streaming mode: ready")
+        logger.info("streaming ready")
 
         if progress_callback:
             progress_callback(len(tracks), len(tracks), "complete")
@@ -130,7 +129,7 @@ class CDPlayerController:
         return (True, "streaming")
 
     def _load_ram_mode(self, progress_callback: Optional[Callable] = None, extraction_level: int = None) -> tuple:
-        logger.info(f"loading in RAM mode (level {extraction_level})")
+        logger.info(f"RAM mode level {extraction_level}")
 
         if extraction_level is not None:
             self.ripper.set_extraction_level(extraction_level)
@@ -157,20 +156,20 @@ class CDPlayerController:
             return (False, "read_error")
 
         self.ripper.read_cdtext()
-        logger.info(f"toc read: {len(tracks)} tracks")
+        logger.info(f"TOC: {len(tracks)} tracks")
 
         total_duration = sum(t.duration_seconds for t in tracks)
         required_ram = config.estimate_cd_ram_usage_mb(total_duration)
         ram_ok, available_ram, ram_msg = config.check_ram_availability(required_ram)
 
         if not ram_ok:
-            logger.error(f"RAM check failed: {ram_msg}")
+            logger.error(f"RAM err: {ram_msg}")
             if progress_callback:
                 progress_callback(0, 0, "error")
             self._fire('loading_progress', 0, 0, "error")
             return (False, "ram_error")
 
-        logger.debug(f"RAM check OK: {required_ram:.0f} MB")
+        logger.debug(f"RAM: {required_ram:.0f} MB needed")
 
         if progress_callback:
             progress_callback(0, len(tracks), "extracting")
@@ -185,7 +184,7 @@ class CDPlayerController:
             logger.error("extraction failed")
             return (False, "extraction_error")
 
-        logger.info("extraction complete")
+        logger.info("extraction done")
 
         if progress_callback:
             progress_callback(len(tracks), len(tracks), "complete")
@@ -207,7 +206,7 @@ class CDPlayerController:
         self.transport.navigate_to(0, auto_play=False)
         self._preload_next()
 
-        logger.info("cd loaded and ready")
+        logger.info("cd loaded, ready")
 
         self._fire('cd_loaded', len(tracks))
 
@@ -218,7 +217,6 @@ class CDPlayerController:
         self.transport.prepare_next(next_idx if next_idx is not None else -1)
 
     def _on_track_end(self):
-        logger.info("track finished")
         new_idx = self.sequencer.advance()
         if new_idx is None:
             self.sequencer.goto(0)
@@ -227,19 +225,16 @@ class CDPlayerController:
             return
 
         if self.transport.get_current_track_index() == new_idx:
-            # Transport already made the transition (gapless)
-            logger.info(f"gapless advance to track {new_idx + 1}")
+            logger.info(f"gapless → track {new_idx + 1}")
         else:
-            # Redirect needed (shuffle, repeat-track, EOF+repeat-all)
             self.transport.navigate_to(new_idx, auto_play=True)
-            logger.info(f"redirect to track {new_idx + 1}")
+            logger.info(f"redirect → track {new_idx + 1}")
 
         self._fire('track_change', new_idx + 1, self.get_total_tracks())
         self._preload_next()
 
     def play(self):
         if not self.cd_loaded:
-            logger.warning("cd not loaded")
             return
         self.transport.play()
         logger.info("[>] play")
@@ -248,8 +243,6 @@ class CDPlayerController:
         if self.transport.get_state() == PlayerState.PLAYING:
             self.transport.pause()
             logger.info("[||] pause")
-        else:
-            logger.debug("already paused/stopped")
 
     def stop(self):
         current_time = time.time()
@@ -262,7 +255,7 @@ class CDPlayerController:
                 self.transport.navigate_to(0, auto_play=False)
                 self.transport.stop()
                 self._fire('track_change', 1, self.get_total_tracks())
-                logger.info("[stop] double stop - returning to track 1")
+                logger.info("[stop] reset to track 1")
                 return
         else:
             self.stop_count = 1
@@ -270,7 +263,7 @@ class CDPlayerController:
         self.last_stop_time = current_time
 
         self.transport.stop()
-        logger.info("[stop] stop")
+        logger.info("[stop]")
 
     def next(self):
         if not self.cd_loaded:
@@ -278,14 +271,13 @@ class CDPlayerController:
 
         new_idx = self.sequencer.advance()
         if new_idx is None:
-            logger.info("already at last track")
             return
 
         was_playing = self.transport.is_playing()
         self.transport.navigate_to(new_idx, auto_play=was_playing)
         self._fire('track_change', new_idx + 1, self.get_total_tracks())
         self._preload_next()
-        logger.info(f"[>>] track {new_idx + 1}")
+        logger.info(f"[>>] track {new_idx + 1}/{self.get_total_tracks()}")
 
     def prev(self):
         if not self.cd_loaded:
@@ -298,13 +290,11 @@ class CDPlayerController:
                 self.transport.navigate_to(prev_idx, auto_play=was_playing)
                 self._fire('track_change', prev_idx + 1, self.get_total_tracks())
                 self._preload_next()
-                logger.info(f"[<<] track {prev_idx + 1}")
+                logger.info(f"[<<] track {prev_idx + 1}/{self.get_total_tracks()}")
             else:
                 self.transport.seek(0)
-                logger.info("[<<] already at first track")
         else:
             self.transport.seek(0)
-            logger.info("[<<] restarting current track")
 
     def goto(self, track_num: int):
         if not self.cd_loaded:
@@ -312,7 +302,6 @@ class CDPlayerController:
 
         total = self.get_total_tracks()
         if not (1 <= track_num <= total):
-            logger.warning(f"track {track_num} invalid (1-{total})")
             return
 
         self.sequencer.goto(track_num - 1)
@@ -320,7 +309,7 @@ class CDPlayerController:
         self.transport.navigate_to(track_num - 1, auto_play=was_playing)
         self._fire('track_change', track_num, total)
         self._preload_next()
-        logger.info(f"[->] track {track_num}")
+        logger.info(f"[->] track {track_num}/{total}")
 
     def seek(self, position_seconds: float):
         self.transport.seek(position_seconds)
@@ -420,22 +409,18 @@ class CDPlayerController:
 
     def shuffle(self) -> bool:
         if not self.cd_loaded:
-            logger.warning("no cd loaded - cannot enable shuffle")
             return False
-
         return self.sequencer.toggle_shuffle()
 
     def scan(self) -> tuple:
-        logger.info("scanning cd (quick toc read)")
         self._wake_transport()
 
         tracks = self.ripper.read_toc()
         if not tracks:
-            logger.info("no cd or read error")
             return (False, "no_disc")
 
         self.ripper.read_cdtext()
-        logger.info(f"toc read: {len(tracks)} tracks")
+        logger.info(f"scan: {len(tracks)} tracks")
         return (True, "ok")
 
     def get_scanned_tracks(self) -> list:
@@ -445,8 +430,6 @@ class CDPlayerController:
         return self.player.verify_bit_perfect_config()
 
     def eject(self):
-        logger.info("ejecting cd...")
-
         self.transport.stop()
 
         if self.is_direct_mode and self.direct_player:
@@ -462,9 +445,9 @@ class CDPlayerController:
         try:
             subprocess.run(['eject', self.ripper.device], timeout=5)
         except Exception:
-            logger.warning("could not eject automatically")
+            logger.warning("eject failed")
 
-        logger.info("cd ejected")
+        logger.info("ejected")
 
     def cleanup(self):
         if self.is_direct_mode and self.direct_player:
@@ -474,4 +457,4 @@ class CDPlayerController:
 
         self.player.cleanup()
         self.ripper.cleanup()
-        logger.info("cleanup complete")
+        logger.debug("cleanup done")

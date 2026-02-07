@@ -40,7 +40,7 @@ class DirectCDPlayer(AudioTransport):
 
         self._chapter_starts: List[float] = self._build_chapter_starts()
 
-        logger.debug(f"DirectCDPlayer initialized: cd={self.cd_device}, alsa={self.alsa_device}, tracks={len(self.tracks)}")
+        logger.debug(f"STREAM: cd={self.cd_device}, alsa={self.alsa_device}, tracks={len(self.tracks)}")
 
     def _ensure_mpv(self):
         if self._process and self._process.poll() is None:
@@ -79,7 +79,7 @@ class DirectCDPlayer(AudioTransport):
             f'--input-ipc-server={self._ipc_socket}',
         ]
 
-        logger.debug(f"DirectCDPlayer: starting persistent mpv")
+        logger.debug("STREAM: mpv starting")
 
         try:
             self._process = subprocess.Popen(
@@ -90,13 +90,13 @@ class DirectCDPlayer(AudioTransport):
             for i in range(30):
                 if os.path.exists(self._ipc_socket):
                     time.sleep(0.1)
-                    logger.debug(f"DirectCDPlayer: mpv IPC ready after {(i+1)*0.1:.1f}s")
+                    logger.debug(f"STREAM: IPC ready ({(i+1)*0.1:.1f}s)")
                     return True
                 time.sleep(0.1)
-            logger.warning("DirectCDPlayer: mpv IPC not ready after 3s")
+            logger.warning("STREAM: IPC timeout 3s")
             return True
         except Exception as e:
-            logger.error(f"DirectCDPlayer: failed to start mpv: {e}")
+            logger.error(f"STREAM: mpv err: {e}")
             return False
 
     def _ensure_ipc_conn(self) -> bool:
@@ -109,10 +109,10 @@ class DirectCDPlayer(AudioTransport):
             self._ipc_conn.settimeout(0.1)
             self._ipc_conn.connect(self._ipc_socket)
             self._ipc_conn.setblocking(False)
-            logger.debug("DirectCDPlayer: persistent IPC connection established")
+            logger.debug("STREAM: IPC connected")
             return True
         except Exception as e:
-            logger.debug(f"DirectCDPlayer: failed to establish IPC connection: {e}")
+            logger.debug(f"STREAM: IPC err: {e}")
             self._ipc_conn = None
             return False
 
@@ -139,7 +139,7 @@ class DirectCDPlayer(AudioTransport):
                     self._ipc_conn.setblocking(False)
                     return json.loads(response.strip().split('\n')[0])
                 except Exception as e:
-                    logger.debug(f"DirectCDPlayer: persistent IPC failed, reconnecting: {e}")
+                    logger.debug(f"STREAM: IPC reconnecting: {e}")
                     self._close_ipc_conn()
 
             try:
@@ -152,7 +152,7 @@ class DirectCDPlayer(AudioTransport):
                 sock.close()
                 return json.loads(response.strip().split('\n')[0])
             except Exception as e:
-                logger.debug(f"DirectCDPlayer: IPC error: {e}")
+                logger.debug(f"STREAM: IPC err: {e}")
                 return {"error": str(e)}
 
     def _get_property(self, prop: str):
@@ -180,11 +180,10 @@ class DirectCDPlayer(AudioTransport):
                 self._monitor_thread.join(timeout=0.2)
 
     def _monitor_playback(self):
-        logger.debug("DirectCDPlayer: monitor thread started")
+        logger.debug("STREAM: monitor started")
 
         chapter_start = self._get_chapter_start(self.current_track)
 
-        # wait for audio to actually start
         start_wait = time.time()
         while not self._stop_event.is_set():
             pos = self._get_property("time-pos")
@@ -193,11 +192,11 @@ class DirectCDPlayer(AudioTransport):
                 if track_pos > 0.1:
                     if not self._playback_started:
                         self._playback_started = True
-                        logger.info(f"DirectCDPlayer: audio started for track {self.current_track} (pos={track_pos:.1f}s)")
+                        logger.debug(f"STREAM: audio started, track {self.current_track}")
                     break
 
             if time.time() - start_wait > 20:
-                logger.warning("DirectCDPlayer: timeout waiting for audio")
+                logger.warning("STREAM: audio timeout")
                 self._playback_started = True
                 break
 
@@ -207,14 +206,13 @@ class DirectCDPlayer(AudioTransport):
         if self._stop_event.wait(timeout=0.2):
             return
 
-        # monitor chapter changes and EOF
         expected_chapter = self.current_track - 1
         while not self._stop_event.is_set():
             chapter = self._get_property("chapter")
 
             if chapter is not None and chapter != expected_chapter:
                 new_track = chapter + 1
-                logger.info(f"DirectCDPlayer: chapter advanced to track {new_track}")
+                logger.info(f"STREAM: chapter {new_track}")
                 self.current_track = new_track
                 expected_chapter = chapter
 
@@ -230,7 +228,7 @@ class DirectCDPlayer(AudioTransport):
             if eof is True:
                 self.state = PlayerState.STOPPED
                 self._playback_started = False
-                logger.info("DirectCDPlayer: EOF reached")
+                logger.info("STREAM: EOF")
                 if self.on_track_end:
                     threading.Thread(
                         target=self.on_track_end,
@@ -241,11 +239,11 @@ class DirectCDPlayer(AudioTransport):
 
             self._stop_event.wait(timeout=0.3)
 
-        logger.debug("DirectCDPlayer: monitor thread stopped")
+        logger.debug("STREAM: monitor stopped")
 
     def play_track(self, track_num: int) -> bool:
         if track_num < 1 or track_num > len(self.tracks):
-            logger.warning(f"DirectCDPlayer: invalid track {track_num}")
+            logger.warning(f"STREAM: invalid track {track_num}")
             return False
 
         self._stop_monitor_thread()
@@ -261,13 +259,13 @@ class DirectCDPlayer(AudioTransport):
         self._last_position_update = 0.0
 
         if self._cd_loaded_in_mpv:
-            logger.debug(f"DirectCDPlayer: seeking to chapter {track_num - 1}")
+            logger.debug(f"STREAM: chapter seek {track_num - 1}")
             self._send_ipc(["set_property", "chapter", track_num - 1])
         else:
             cd_url = f'cdda://{self.cd_device}'
             result = self._send_ipc(["loadfile", cd_url, "replace"])
             if result.get("error") != "success":
-                logger.error(f"DirectCDPlayer: loadfile failed: {result}")
+                logger.error(f"STREAM: loadfile err: {result}")
                 self.state = PlayerState.STOPPED
                 return False
 
@@ -281,7 +279,7 @@ class DirectCDPlayer(AudioTransport):
                         break
                 self._send_ipc(["set_property", "chapter", track_num - 1])
 
-        logger.info(f"DirectCDPlayer: playing track {track_num}")
+        logger.info(f"STREAM: track {track_num}")
 
         self._monitor_thread = threading.Thread(
             target=self._monitor_playback,
@@ -303,13 +301,13 @@ class DirectCDPlayer(AudioTransport):
             self._pause_time = self.get_position()
             self._send_ipc(["set_property", "pause", True])
             self.state = PlayerState.PAUSED
-            logger.info(f"DirectCDPlayer: paused at {self._pause_time:.1f}s")
+            logger.debug(f"STREAM: paused at {self._pause_time:.1f}s")
 
     def resume(self):
         if self.state == PlayerState.PAUSED:
             self._send_ipc(["set_property", "pause", False])
             self.state = PlayerState.PLAYING
-            logger.info("DirectCDPlayer: resumed")
+            logger.debug("STREAM: resumed")
 
     def stop(self):
         self._stop_monitor_thread()
@@ -320,7 +318,7 @@ class DirectCDPlayer(AudioTransport):
         self.state = PlayerState.STOPPED
         self._pause_time = 0
         self._playback_started = False
-        logger.info("DirectCDPlayer: stopped")
+        logger.debug("STREAM: stopped")
 
     def navigate_to(self, track_index, auto_play=True):
         track_num = track_index + 1
@@ -380,10 +378,9 @@ class DirectCDPlayer(AudioTransport):
         chapter_start = self._get_chapter_start(self.current_track)
         absolute_pos = chapter_start + position_seconds
         self._send_ipc(["seek", absolute_pos, "absolute"])
-        logger.info(f"DirectCDPlayer: seek to {position_seconds:.1f}s")
+        logger.debug(f"STREAM: seek {position_seconds:.1f}s")
 
     def cleanup(self):
-        logger.debug("DirectCDPlayer: cleanup called")
         self._stop_monitor_thread()
 
         if self._process:
@@ -392,16 +389,16 @@ class DirectCDPlayer(AudioTransport):
             try:
                 self._process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                logger.warning("DirectCDPlayer: mpv not responding, terminating")
+                logger.warning("STREAM: mpv not responding")
                 self._process.terminate()
                 try:
                     self._process.wait(timeout=1)
                 except subprocess.TimeoutExpired:
-                    logger.warning("DirectCDPlayer: force killing mpv")
+                    logger.warning("STREAM: killing mpv")
                     self._process.kill()
                     self._process.wait()
             except Exception as e:
-                logger.error(f"DirectCDPlayer: error stopping mpv: {e}")
+                logger.error(f"STREAM: mpv stop err: {e}")
                 try:
                     self._process.kill()
                 except Exception:
@@ -423,4 +420,4 @@ class DirectCDPlayer(AudioTransport):
             self._ipc_dir = None
 
         self._cd_loaded_in_mpv = False
-        logger.info("DirectCDPlayer: cleanup complete")
+        logger.debug("STREAM: cleanup done")

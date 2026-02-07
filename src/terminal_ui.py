@@ -96,7 +96,6 @@ class TerminalUI:
                 dur_min = int(duration // 60)
                 dur_sec = int(duration % 60)
 
-                # Add streaming mode indicator
                 mode_indicator = ""
                 if self.controller.is_direct_mode:
                     mode_indicator = " \033[0;33m⚡\033[0m"
@@ -310,7 +309,6 @@ class TerminalUI:
     def _verify_alsa_status(self):
         try:
             import alsaaudio
-            # Check if device exists in available PCMs (without opening it)
             devices = alsaaudio.pcms(alsaaudio.PCM_PLAYBACK)
             device_available = any(config.ALSA_DEVICE.split(':')[0] in d for d in devices)
 

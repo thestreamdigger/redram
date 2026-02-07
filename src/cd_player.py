@@ -39,7 +39,7 @@ class BitPerfectPlayer(AudioTransport):
         self._track_count = track_count
         self._next_track_index = -1
 
-        logger.debug(f"PLAYER: initialized with device={self.device} (lazy ALSA)")
+        logger.debug(f"PLAYER: device={self.device}")
 
     def _ensure_alsa(self):
         if self._alsa_initialized and self.pcm:
@@ -48,7 +48,6 @@ class BitPerfectPlayer(AudioTransport):
 
     def _init_alsa(self):
         try:
-            logger.debug(f"PLAYER: opening ALSA device {self.device}")
             start_time = time.time()
 
             self.pcm = alsaaudio.PCM(
@@ -64,8 +63,7 @@ class BitPerfectPlayer(AudioTransport):
 
             self._alsa_initialized = True
             elapsed = (time.time() - start_time) * 1000
-            logger.info(f"PLAYER: ALSA initialized in {elapsed:.1f}ms - {self.device} @ {config.SAMPLE_RATE}Hz/{config.BIT_DEPTH}bit/{config.CHANNELS}ch")
-            logger.debug(f"PLAYER: period_size={config.PERIOD_SIZE}, buffer_size={config.BUFFER_SIZE}")
+            logger.info(f"PLAYER: ALSA ready in {elapsed:.1f}ms ({self.device})")
             return True
 
         except alsaaudio.ALSAAudioError as e:
@@ -74,7 +72,7 @@ class BitPerfectPlayer(AudioTransport):
             print("\033[2mcheck audio configuration:\033[0m")
             print(f"  aplay -l")
             print(f"  python3 -c \"import alsaaudio; print(alsaaudio.pcms())\"\n")
-            logger.error(f"PLAYER: ALSA init failed: {e}")
+            logger.error(f"PLAYER: ALSA err: {e}")
             raise alsaaudio.ALSAAudioError(f"Device {self.device} not available. Check your audio configuration.")
 
     def verify_bit_perfect_config(self) -> dict:
@@ -85,7 +83,7 @@ class BitPerfectPlayer(AudioTransport):
         }
 
         if not self.device.startswith('hw:'):
-            logger.warning(f"PLAYER: device {self.device} is not direct ALSA! Use 'hw:X,Y' for bit perfect")
+            logger.warning(f"PLAYER: not direct ALSA ({self.device}), use hw:X,Y")
             checks['alsa_device'] = False
 
         if config.VERIFY_VOLUME:
@@ -93,7 +91,7 @@ class BitPerfectPlayer(AudioTransport):
                 mixer = alsaaudio.Mixer('PCM')
                 volume = mixer.getvolume()[0]
                 if volume < 100:
-                    logger.warning(f"PLAYER: PCM volume at {volume}%. For bit perfect, use 100%")
+                    logger.warning(f"PLAYER: PCM volume {volume}%, should be 100%")
                     checks['volume'] = False
             except Exception:
                 pass
@@ -101,44 +99,22 @@ class BitPerfectPlayer(AudioTransport):
         return checks
 
     def load_pcm_data(self, pcm_data: bytes):
-        logger.debug(f"PLAYER: load_pcm_data called, data size={len(pcm_data)} bytes")
-        start_time = time.time()
-
         self.stop()
-
         self.current_data = pcm_data
         self.current_position = 0
         self.total_size = len(pcm_data)
-
-        duration = self.get_duration()
-        elapsed = (time.time() - start_time) * 1000
-        logger.info(f"PLAYER: track loaded in {elapsed:.1f}ms - {self.total_size} bytes ({duration:.1f}s)")
-
-        if duration == 0:
-            logger.warning(f"PLAYER: WARNING duration=0! total_size={self.total_size}")
+        logger.debug(f"PLAYER: loaded {self.total_size} bytes ({self.get_duration():.1f}s)")
 
     def preload_next_track(self, pcm_data: bytes):
-        if pcm_data:
-            self.next_track_data = pcm_data
-            duration = len(pcm_data) / (config.SAMPLE_RATE * config.CHANNELS * 2)
-            logger.debug(f"PLAYER: next track preloaded - {len(pcm_data)} bytes ({duration:.1f}s)")
-        else:
-            self.next_track_data = None
-            logger.debug("PLAYER: next track cleared")
+        self.next_track_data = pcm_data
 
     def play(self):
-        if not self.current_data:
-            logger.warning("PLAYER: play() called but no track loaded")
-            return
-
-        if self.state == PlayerState.PLAYING:
-            logger.debug("PLAYER: already playing, ignoring play()")
+        if not self.current_data or self.state == PlayerState.PLAYING:
             return
 
         if self.state == PlayerState.PAUSED:
             self.pause_event.set()
             self.state = PlayerState.PLAYING
-            logger.info("PLAYER: resumed from pause")
             return
 
         self._ensure_alsa()
@@ -152,19 +128,14 @@ class BitPerfectPlayer(AudioTransport):
         self.play_thread = threading.Thread(target=self._playback_loop, daemon=True, name="ALSA-Playback")
         self.play_thread.start()
 
-        logger.info(f"PLAYER: playback started at position {self.get_position():.1f}s")
-
     def pause(self):
         if self.state == PlayerState.PLAYING:
             self.state = PlayerState.PAUSED
             self.pause_event.clear()
-            logger.info(f"PLAYER: paused at {self.get_position():.1f}s (chunks={self._chunks_written})")
 
     def stop(self):
         if self.state == PlayerState.STOPPED:
             return
-
-        logger.debug(f"PLAYER: stopping (was at {self.get_position():.1f}s, chunks={self._chunks_written})")
 
         self.state = PlayerState.STOPPED
         self.stop_event.set()
@@ -173,7 +144,7 @@ class BitPerfectPlayer(AudioTransport):
         if self.play_thread and self.play_thread.is_alive():
             self.play_thread.join(timeout=2)
             if self.play_thread.is_alive():
-                logger.warning("PLAYER: playback thread did not stop gracefully")
+                logger.warning("PLAYER: thread stuck")
 
         self.current_position = 0
 
@@ -183,8 +154,6 @@ class BitPerfectPlayer(AudioTransport):
                 self.pcm.pause(0)
         except Exception:
             pass
-
-        logger.info(f"PLAYER: stopped (wrote {self._chunks_written} chunks, {self._underruns} underruns)")
 
     def seek(self, position_seconds: float):
         if not self.current_data:
@@ -200,10 +169,9 @@ class BitPerfectPlayer(AudioTransport):
             self.current_position = new_position
             if was_playing:
                 self.play()
-            logger.info(f"PLAYER: seek to {position_seconds:.1f}s")
+            logger.debug(f"PLAYER: seek to {position_seconds:.1f}s")
 
     def _playback_loop(self):
-        logger.debug("PLAYER: playback loop started")
         loop_start = time.time()
 
         try:
@@ -218,7 +186,6 @@ class BitPerfectPlayer(AudioTransport):
 
                 if self.current_position >= self.total_size:
                     if self.next_track_data:
-                        logger.info("PLAYER: gapless transition to next track")
                         self.current_data = self.next_track_data
                         self.current_position = 0
                         self.total_size = len(self.next_track_data)
@@ -229,8 +196,6 @@ class BitPerfectPlayer(AudioTransport):
                             self.on_track_end()
                         continue
                     else:
-                        elapsed = time.time() - loop_start
-                        logger.info(f"PLAYER: end of track (played {elapsed:.1f}s, {self._chunks_written} chunks)")
                         self.state = PlayerState.STOPPED
                         if self.on_track_end:
                             self.on_track_end()
@@ -248,23 +213,18 @@ class BitPerfectPlayer(AudioTransport):
                     self._chunks_written += 1
 
                     if write_time > 200:
-                        logger.warning(f"PLAYER: slow write #{self._chunks_written}: {write_time:.1f}ms")
+                        logger.warning(f"PLAYER: slow write {write_time:.1f}ms")
                         self._underruns += 1
 
-                    if self._chunks_written % 5000 == 0:
-                        position = self.current_position / bytes_per_second
-                        logger.debug(f"PLAYER: chunk #{self._chunks_written} at {position:.1f}s")
-
                 except alsaaudio.ALSAAudioError as e:
-                    logger.error(f"PLAYER: ALSA error at chunk #{self._chunks_written}: {e}")
+                    logger.error(f"PLAYER: ALSA err: {e}")
                     self._underruns += 1
                     try:
                         self.pcm.close()
                         self._init_alsa()
                         self.pcm.write(data)
-                        logger.info("PLAYER: recovered from ALSA error")
                     except Exception:
-                        logger.error("PLAYER: failed to recover from ALSA error")
+                        logger.error("PLAYER: recovery failed")
                         self.state = PlayerState.STOPPED
                         break
 
@@ -274,10 +234,8 @@ class BitPerfectPlayer(AudioTransport):
                     self.on_position_change(self.get_position())
 
         except Exception as e:
-            logger.error(f"PLAYER: exception in playback loop: {e}")
+            logger.error(f"PLAYER: playback err: {e}")
             self.state = PlayerState.STOPPED
-
-        logger.debug(f"PLAYER: playback loop ended (chunks={self._chunks_written}, underruns={self._underruns})")
 
     def get_position(self) -> float:
         if not self.current_data:
@@ -334,11 +292,9 @@ class BitPerfectPlayer(AudioTransport):
         }
 
     def cleanup(self):
-        logger.debug("PLAYER: cleanup called")
         self.stop()
         if self.pcm:
             try:
                 self.pcm.close()
             except Exception:
                 pass
-        logger.info(f"PLAYER: cleanup complete (total chunks={self._chunks_written}, underruns={self._underruns})")

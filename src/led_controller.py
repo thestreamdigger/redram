@@ -1,7 +1,3 @@
-"""
-Neopixel WS2812 LED controller
-"""
-
 import logging
 import threading
 import time
@@ -150,7 +146,6 @@ class NeopixelController:
         if status in [LEDStatus.OFF, LEDStatus.READY, LEDStatus.LOADING,
                       LEDStatus.LOADED, LEDStatus.PLAYING, LEDStatus.PAUSED, LEDStatus.ERROR]:
             self.current_status = status
-            logger.debug(f"LED status: {status}")
         else:
             logger.warning(f"invalid status: {status}")
 
@@ -162,7 +157,6 @@ class NeopixelController:
 
     def on_cd_loaded(self, total_tracks: int):
         self.set_status(LEDStatus.LOADED)
-        logger.debug(f"LED: cd loaded, {total_tracks} tracks")
 
     def on_playback_state(self, is_playing: bool, is_paused: bool, cd_loaded: bool = False):
         if is_playing:
@@ -195,7 +189,7 @@ class NeopixelController:
             except Exception:
                 pass
 
-        logger.info("LED cleanup done")
+        logger.debug("LED: cleanup done")
 
 
 def setup_led_controller(controller) -> Optional[NeopixelController]:
@@ -227,5 +221,5 @@ def setup_led_controller(controller) -> Optional[NeopixelController]:
 
     threading.Thread(target=monitor_playback, daemon=True).start()
 
-    logger.info("[OK] LED connected to controller")
+    logger.info("LED: connected")
     return led

@@ -1,7 +1,3 @@
-"""
-Track sequencer — shuffle, repeat, navigation (0-based indexing)
-"""
-
 import random
 import logging
 from enum import Enum
@@ -33,7 +29,7 @@ class TrackSequencer:
         self._shuffle_position = 0
         self.shuffle_on = False
         self.repeat_mode = RepeatMode.OFF
-        logger.debug(f"SEQUENCER: initialized with {count} tracks")
+        logger.debug(f"SEQ: {count} tracks")
 
     @property
     def total_tracks(self) -> int:
@@ -52,10 +48,9 @@ class TrackSequencer:
                     self._shuffle_position = self._shuffle_playlist.index(value)
                 except ValueError:
                     pass
-            logger.debug(f"SEQUENCER: current_index set to {value}")
+            logger.debug(f"SEQ: index {value}")
 
     def next_track(self) -> Optional[int]:
-        """Compute next track index. Does NOT advance."""
         if self._total_tracks == 0:
             return None
 
@@ -79,7 +74,6 @@ class TrackSequencer:
             return next_idx
 
     def prev_track(self) -> Optional[int]:
-        """Compute previous track index. Does NOT retreat."""
         if self._total_tracks == 0:
             return None
 
@@ -93,7 +87,6 @@ class TrackSequencer:
             return None
 
     def advance(self) -> Optional[int]:
-        """Move to next track. Returns new index or None (disc_end)."""
         next_idx = self.next_track()
         if next_idx is not None:
             self._current_index = next_idx
@@ -101,17 +94,16 @@ class TrackSequencer:
                 self._shuffle_position += 1
                 if self._shuffle_position >= len(self._shuffle_playlist):
                     self._shuffle_position = 0
-            logger.debug(f"SEQUENCER: advanced to track {next_idx + 1}")
+            logger.debug(f"SEQ: → track {next_idx + 1}")
         return next_idx
 
     def retreat(self) -> Optional[int]:
-        """Move to previous track. Returns new index or None."""
         prev_idx = self.prev_track()
         if prev_idx is not None:
             self._current_index = prev_idx
             if self.shuffle_on:
                 self._shuffle_position = max(0, self._shuffle_position - 1)
-            logger.debug(f"SEQUENCER: retreated to track {prev_idx + 1}")
+            logger.debug(f"SEQ: ← track {prev_idx + 1}")
         return prev_idx
 
     def goto(self, index: int) -> bool:
@@ -122,9 +114,9 @@ class TrackSequencer:
                     self._shuffle_position = self._shuffle_playlist.index(index)
                 except ValueError:
                     pass
-            logger.debug(f"SEQUENCER: goto track {index + 1}")
+            logger.debug(f"SEQ: goto track {index + 1}")
             return True
-        logger.warning(f"SEQUENCER: invalid track index {index}")
+        logger.warning(f"SEQ: invalid index {index}")
         return False
 
     def toggle_shuffle(self) -> bool:
@@ -135,22 +127,21 @@ class TrackSequencer:
                 self._shuffle_position = self._shuffle_playlist.index(self._current_index)
             except ValueError:
                 self._shuffle_position = 0
-            logger.info(f"SEQUENCER: shuffle ON, playlist: {[i+1 for i in self._shuffle_playlist]}")
+            logger.info(f"SEQ: shuffle ON {[i+1 for i in self._shuffle_playlist]}")
         else:
             self._shuffle_playlist = []
             self._shuffle_position = 0
-            logger.info("SEQUENCER: shuffle OFF")
+            logger.info("SEQ: shuffle OFF")
         return self.shuffle_on
 
     def cycle_repeat(self) -> RepeatMode:
-        """Cycle: OFF -> TRACK -> ALL -> OFF."""
         if self.repeat_mode == RepeatMode.OFF:
             self.repeat_mode = RepeatMode.TRACK
         elif self.repeat_mode == RepeatMode.TRACK:
             self.repeat_mode = RepeatMode.ALL
         else:
             self.repeat_mode = RepeatMode.OFF
-        logger.info(f"SEQUENCER: repeat mode: {self.repeat_mode.name}")
+        logger.info(f"SEQ: repeat {self.repeat_mode.name}")
         return self.repeat_mode
 
     def reset(self) -> None:
@@ -158,10 +149,9 @@ class TrackSequencer:
         self._shuffle_position = 0
         if self.shuffle_on:
             self._generate_shuffle_playlist()
-        logger.debug("SEQUENCER: reset to track 1")
+        logger.debug("SEQ: reset")
 
     def get_next_for_preload(self) -> Optional[int]:
-        """Next track index for gapless preload, or None."""
         if self.repeat_mode == RepeatMode.TRACK:
             return self._current_index
 
