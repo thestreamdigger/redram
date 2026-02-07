@@ -43,7 +43,11 @@ def detect_audio_device():
 
 
 def get_audio_device_name(hw_device: str = None) -> str:
-    hw_device = hw_device or ALSA_DEVICE
+    global _ALSA_DEVICE
+    if hw_device is None:
+        if _ALSA_DEVICE is None:
+            _ALSA_DEVICE = detect_audio_device()
+        hw_device = _ALSA_DEVICE
     devices = _parse_aplay_output()
 
     for d in devices:
