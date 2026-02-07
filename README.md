@@ -1,6 +1,6 @@
 # RedRAM - CD-to-RAM Player
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/thestreamdigger/redram)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](https://github.com/thestreamdigger/redram)
 [![License](https://img.shields.io/badge/license-GPL%20v3-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 [![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)]()
@@ -130,13 +130,26 @@ LED: GPIO 18 (Pin 12) → [470Ω] → WS2812 DIN
 
 ## Configuration
 
-Edit `src/config.py`:
+Defaults in `src/config.py`. User overrides in `config/settings.json`:
+
+```json
+{
+    "autoplay_on_load": {"0": true},
+    "led_enabled": true,
+    "gpio_enabled": true
+}
+```
+
+Keys match `config.py` constants (lowercase in JSON). Only include what you want to override.
+
+### Defaults
 
 ```python
 CD_DEVICE = '/dev/sr0'
 ALSA_DEVICE = detect_audio_device()  # Auto-detects
 RAM_PATH = '/mnt/cdram'
 RAM_SIZE = '1G'
+AUTOPLAY_ON_LOAD = {0: True}  # Autoplay per level, or True/False for all
 
 GPIO_ENABLED = False  # Set True for buttons
 LED_ENABLED = False   # Set True for WS2812

@@ -195,6 +195,16 @@ RedRAM supports both formats for backward compatibility.
 - Repeat mode to flags conversion
 - All required MCUB fields
 
+### Event Integration
+
+```python
+# terminal_ui.py registers HEAD via listener pattern
+controller.on('track_change', self._on_track_change)
+controller.on('cd_loaded', self._on_cd_loaded)
+```
+
+HEAD uses pull-model (`get_state` callback) for 500ms polling — correct for serial devices.
+
 ---
 
 ## Configuration
