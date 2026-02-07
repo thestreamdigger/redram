@@ -2,20 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - Sequencer Consolidation
+
+### Fixed
+- **Repeat-track gapless deadlock**: `_on_track_end` no longer calls `load_pcm_data()`/`stop()` from playback thread
+- **Shuffle streaming**: `_on_streaming_track_end` now uses `sequencer.advance()` instead of linear `current + 1`
+- **Repeat-track shuffle drift**: `advance()` no longer increments `_shuffle_position` in repeat-track mode
+- **Double brightness on LED**: Removed manual scaling in `_set_color`/`_set_all_colors` (PixelStrip already handles brightness)
+- **tempfile.mktemp race condition**: Replaced with `tempfile.mkdtemp()` + socket inside for mpv IPC
+- **Error message**: `load` level validation now shows "use 0-3" instead of "use 1-3"
+
+### Refactored
+- **CDPlayerController**: Eliminated `current_track_idx` duplicated state, sequencer is single source of truth
+- Removed `shuffle_playlist`, `shuffle_position` proxy properties
+- Removed `_get_next_track_index()` and `_generate_shuffle_playlist()` (duplicated sequencer logic)
+- Replaced `_load_current_track()` with `_load_and_preload()` + `_preload_next()` using `sequencer.get_next_for_preload()`
+- Rewrote `next()`, `prev()`, `goto()`, `shuffle()` to delegate entirely to sequencer
+- **config.py**: Lazy ALSA detection via module `__getattr__` (PEP 562), zero import-time side effects
+
+### Removed
+- `BitPerfectPlayer.is_playing()` override (identical to base `AudioTransport.is_playing()`)
+- `config.PARANOIA_MODE` (unreferenced)
+- Unused `current_time` variable in LED animation loop
+
 ## [0.6.0] - CD-Text and Protocol Update
 
 ### Added
 - **CD-Text Support**: Automatic metadata extraction (artist, album, track titles) via libcdio-utils
 - **MCUB Protocol v2.0.0**: Backwards compatible update with `ver` field and `modes` validation
 - **Extraction Retry**: Failed tracks automatically retry (max 2 attempts) before aborting
+- **goto() streaming mode**: Direct track jump now works in streaming mode
 
 ### Changed
 - HEAD commands now pass `parameters` dict to callback for v2.0.0 compliance
 - All log messages in English following CLAUDE.md style
+- Streaming mode indicator changed from `[STREAM]` to `⚡` (yellow)
+- Status icons now colored: ▸ (green), ▍▍ (yellow), ■ (red)
+- Progress arrow → now blue instead of dim
 
 ### Fixed
 - Streaming mode first play: track index now correctly starts at 1
 - Exception handling: replaced 16 bare `except:` with `except Exception:`
+- Streaming buffer increased to 2s to reduce audio interruptions
+- Monitor thread now uses Event.wait() for faster command response (~1ms vs ~200ms)
+
+### Refactored
+- **AudioTransport ABC**: Unified interface for RAM and streaming players
+- **TrackSequencer**: Extracted shuffle/repeat logic to standalone class
+- **PlayerState enum**: Unified state representation (was string in streaming mode)
+- **Polymorphic transport**: `transport` property for cleaner player access
+- **Chapter starts cached**: O(1) lookup instead of O(n) calculation
+- **Persistent IPC connection**: Reuses socket connection with automatic fallback
+- Reduced `is_direct_mode` conditionals from 21 to 15
+- Added 43 unit tests for sequencer and transport conformance
+
+### Known Issues
+- **Streaming mode (level 0)**: mpv cdda:// in idle mode may not work reliably (see mpv#7384). Use RAM mode (levels 1-3) for production.
 
 ### Dependencies
 - Added: `libcdio-utils` (apt) for `cd-info` command

@@ -10,11 +10,11 @@ O modo streaming (level 0) permite reprodução direta do CD sem extração para
 ┌─────────────────────────────────────────────────────────────────┐
 │                        CDPlayerController                        │
 │                                                                  │
-│  is_direct_mode = True                                          │
-│  direct_player = DirectCDPlayer(...)                            │
+│  transport: AudioTransport  ──► DirectCDPlayer (is_direct_mode) │
+│  sequencer: TrackSequencer  ──► shuffle/repeat logic            │
 │                                                                  │
 │  ┌────────────────────────────────────────────────────────────┐ │
-│  │                     DirectCDPlayer                          │ │
+│  │              DirectCDPlayer(AudioTransport)                 │ │
 │  │                                                              │ │
 │  │  ┌──────────────┐    ┌─────────────┐    ┌───────────────┐  │ │
 │  │  │  mpv process │◄───│  IPC Socket │◄───│ _send_ipc()   │  │ │
@@ -35,9 +35,18 @@ O modo streaming (level 0) permite reprodução direta do CD sem extração para
 ### Localização
 `src/cd_direct_player.py`
 
+### Herança
+```python
+from audio_transport import AudioTransport, PlayerState
+
+class DirectCDPlayer(AudioTransport):
+    ...
+```
+
 ### Dependências
 - `mpv` - media player (instalado no sistema)
 - `config` - configurações do redram
+- `audio_transport` - interface AudioTransport e PlayerState enum
 
 ---
 
@@ -49,7 +58,7 @@ O modo streaming (level 0) permite reprodução direta do CD sem extração para
 | `alsa_device` | str | Dispositivo ALSA (ex: `hw:1,0`) |
 | `tracks` | List[CDTrack] | Lista de faixas do CD |
 | `current_track` | int | Faixa atual (1-indexed) |
-| `state` | str | Estado: `'stopped'`, `'playing'`, `'paused'` |
+| `state` | PlayerState | Estado: `STOPPED`, `PLAYING`, `PAUSED` (enum) |
 | `on_track_end` | Callable | Callback quando faixa termina |
 
 ### Atributos Internos
@@ -139,8 +148,43 @@ Volta para faixa anterior.
 
 ---
 
-### `get_state() -> str`
-Retorna estado atual: `'stopped'`, `'playing'`, `'paused'`
+### `play()`
+Inicia ou retoma reprodução (interface AudioTransport).
+
+**Comportamento:**
+- Se pausado: chama `resume()`
+- Se parado e `current_track > 0`: chama `play_track(current_track)`
+
+---
+
+### `seek(position_seconds: float)`
+Seek dentro da faixa atual.
+
+**Parâmetros:**
+- `position_seconds`: Posição em segundos
+
+**Comportamento:**
+- Calcula posição absoluta: `chapter_start + position_seconds`
+- Envia comando seek absoluto ao mpv
+
+---
+
+### `load_track_by_index(track_index: int) -> bool`
+Carrega faixa pelo índice 0-based (interface AudioTransport).
+
+**Parâmetros:**
+- `track_index`: Índice da faixa (0-based)
+
+**Retorno:** `True` se índice válido
+
+**Comportamento:**
+- Converte para 1-based: `track_num = track_index + 1`
+- Define `current_track` (não inicia reprodução)
+
+---
+
+### `get_state() -> PlayerState`
+Retorna estado atual: `PlayerState.STOPPED`, `PlayerState.PLAYING`, `PlayerState.PAUSED`
 
 ---
 
@@ -193,6 +237,7 @@ Garante que processo mpv está rodando.
 --audio-device=alsa/hw:X,Y    # Dispositivo específico
 --audio-pitch-correction=no   # Sem correção de pitch
 --audio-normalize-downmix=no  # Sem normalização
+--audio-buffer=1              # Buffer de 1 segundo
 --replaygain=no               # Sem ReplayGain
 --volume=100                  # Volume máximo
 --volume-max=100              # Limite de volume
@@ -293,46 +338,65 @@ def _load_streaming_mode(self):
     3. self.direct_player = DirectCDPlayer(tracks=tracks)
     4. self.direct_player.on_track_end = self._on_streaming_track_end
     5. self.is_direct_mode = True
-    6. self.direct_player.play_track(1)  # Inicia reprodução
+    6. self.sequencer.set_total_tracks(len(tracks))  # Inicializa sequencer
+    7. self.direct_player.play_track(1)  # Inicia reprodução
+```
+
+### Acesso Polimórfico via Transport
+
+O controller usa a property `transport` para acesso polimórfico:
+
+```python
+@property
+def transport(self) -> AudioTransport:
+    if self.is_direct_mode and self.direct_player:
+        return self.direct_player
+    return self.player
 ```
 
 ### Delegação de Comandos
 
-Quando `is_direct_mode = True`, o controller delega para `direct_player`:
+Métodos que usam `self.transport` (polimórfico):
 
-| Método Controller | Método DirectCDPlayer |
+| Método Controller | Método AudioTransport |
 |-------------------|----------------------|
-| `play()` | `resume()` ou `play_track()` |
-| `pause()` | `pause()` |
-| `stop()` | `stop()` |
-| `next()` | `next_track()` |
-| `prev()` | `prev_track()` |
-| `get_position()` | `get_position()` |
-| `get_duration()` | `get_duration()` |
-| `get_state()` | `get_state()` |
-| `get_current_track_num()` | `get_current_track()` |
-| `get_total_tracks()` | `len(tracks)` |
+| `pause()` | `transport.pause()` |
+| `get_position()` | `transport.get_position()` |
+| `get_duration()` | `transport.get_duration()` |
+| `get_state()` | `transport.get_state()` |
+
+### TrackSequencer
+
+A lógica de shuffle/repeat foi extraída para `TrackSequencer`:
+
+```python
+# Shuffle/repeat agora independente do modo de playback
+self.sequencer = TrackSequencer()
+
+def shuffle(self):
+    self.sequencer.toggle_shuffle()
+
+def repeat(self):
+    self.sequencer.cycle_repeat()
+
+def next(self):
+    next_idx = self.sequencer.next_track()  # Respeita shuffle/repeat
+    if next_idx is not None:
+        self.transport.load_track_by_index(next_idx)
+        self.transport.play()
+```
 
 ### Callback de Fim de Faixa
 
 ```python
 def _on_streaming_track_end(self):
-    # Repeat track
-    if repeat_mode == TRACK:
-        direct_player.play_track(current)
+    next_idx = self.sequencer.advance()  # Usa sequencer para próxima faixa
 
-    # Próxima faixa
-    elif current < total:
-        direct_player.play_track(current + 1)
-        on_track_change(next_track, total)
-
-    # Repeat all
-    elif repeat_mode == ALL:
-        direct_player.play_track(1)
-        on_track_change(1, total)
-
-    # Fim do disco
+    if next_idx is not None:
+        self.direct_player.play_track(next_idx + 1)  # Converte para 1-based
+        on_track_change(next_idx + 1, total)
     else:
+        # Fim do disco (sem repeat)
         on_status_change("disc_end")
 ```
 
@@ -372,6 +436,43 @@ Controla quando o áudio realmente começou:
 | Backend | ALSA direto | mpv |
 | Gapless | Nativo | Via chapters |
 | Seek | Instantâneo | Depende do drive |
+| Shuffle | Sim | Sim (via TrackSequencer) |
+| Repeat | Sim | Sim (via TrackSequencer) |
+| Goto | Sim | Sim |
+
+## Interface AudioTransport
+
+Ambos os players implementam a interface `AudioTransport` definida em `src/audio_transport.py`:
+
+```python
+class AudioTransport(ABC):
+    on_track_end: Optional[Callable[[], None]] = None
+
+    @abstractmethod
+    def play(self) -> None: ...
+    @abstractmethod
+    def pause(self) -> None: ...
+    @abstractmethod
+    def stop(self) -> None: ...
+    @abstractmethod
+    def seek(self, position_seconds: float) -> None: ...
+    @abstractmethod
+    def get_position(self) -> float: ...
+    @abstractmethod
+    def get_duration(self) -> float: ...
+    @abstractmethod
+    def get_state(self) -> PlayerState: ...
+    @abstractmethod
+    def cleanup(self) -> None: ...
+
+    def is_playing(self) -> bool:
+        return self.get_state() == PlayerState.PLAYING
+
+    def load_track_by_index(self, track_index: int) -> bool:
+        return False  # Optional
+```
+
+Isso permite que o controller use `self.transport` para acessar qualquer player de forma polimórfica.
 
 ---
 
@@ -391,3 +492,26 @@ Controla quando o áudio realmente começou:
 - Verificar se mpv está instalado: `which mpv`
 - Verificar socket IPC: `ls /tmp/mpv_*.sock`
 - Log: `DirectCDPlayer: failed to start mpv`
+
+---
+
+## Limitações Conhecidas
+
+### mpv idle mode + cdda://
+
+Existe um problema conhecido ([mpv#7384](https://github.com/mpv-player/mpv/issues/7384)) onde o protocolo `cdda://` pode não funcionar corretamente quando mpv está em modo idle (`--idle=yes`).
+
+**Sintomas:**
+- `core-idle: True` mesmo após `loadfile`
+- `time-pos: property unavailable`
+- CD não toca, mas processo mpv está rodando
+
+**Status:** Em investigação. Para uso em produção, recomenda-se o **RAM mode** que usa cdparanoia para extração confiável.
+
+**Workarounds testados (sem sucesso):**
+- `av://libcdio:/dev/sr0` - mesmo problema
+- `playlist-play-index` após loadfile - sem efeito
+
+### Recomendação
+
+Use **RAM mode** (level 1-3) para playback confiável. O streaming mode (level 0) é experimental e pode não funcionar em todas as configurações.

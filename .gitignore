@@ -1,23 +1,5 @@
-# Python
 __pycache__/
-*.py[cod]
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
+*.pyc
 venv/
-.venv/
-
-# Logs
 *.log
-
-# IDE
-.vscode/
-.idea/
-
-# Claude
-.claude/
-
-# Local
-*.local.*
+.pytest_cache/

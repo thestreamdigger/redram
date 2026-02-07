@@ -158,9 +158,9 @@ COMO USAR:
 
    # Teste se GPIO está funcionando:
    if gpio.is_enabled():
-       print("✓ gpio operational")
+       print("\033[0;32m✓\033[0m gpio operational")
    else:
-       print("✗ gpio unavailable")
+       print("\033[0;31m✗\033[0m gpio unavailable")
 
 4. CUSTOMIZAÇÃO:
    

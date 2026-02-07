@@ -77,13 +77,9 @@ class NeopixelController:
     def _set_color(self, color: Tuple[int, int, int], led_index: int = 0):
         if not self.enabled or not self.strip:
             return
-        
+
         try:
             r, g, b = color
-            r = int(r * (self.brightness / 255))
-            g = int(g * (self.brightness / 255))
-            b = int(b * (self.brightness / 255))
-            
             self.strip.setPixelColor(led_index, Color(r, g, b))
             self.strip.show()
         except Exception as e:
@@ -92,13 +88,9 @@ class NeopixelController:
     def _set_all_colors(self, color: Tuple[int, int, int]):
         if not self.enabled or not self.strip:
             return
-        
+
         try:
             r, g, b = color
-            r = int(r * (self.brightness / 255))
-            g = int(g * (self.brightness / 255))
-            b = int(b * (self.brightness / 255))
-            
             for i in range(config.LED_COUNT):
                 self.strip.setPixelColor(i, Color(r, g, b))
             self.strip.show()
@@ -132,7 +124,6 @@ class NeopixelController:
                     self._set_all_colors(color)
                     time.sleep(0.5)
                 elif status == LEDStatus.PLAYING:
-                    current_time = time.time()
                     pulse = int((time.time() * 2) % 2)
                     brightness_factor = 0.5 + (0.5 * abs(pulse - 0.5) * 2)
                     r = int(color[0] * brightness_factor)

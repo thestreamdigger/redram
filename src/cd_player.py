@@ -2,20 +2,14 @@ import alsaaudio
 import threading
 import logging
 import time
-from enum import Enum
 from typing import Optional, Callable
 import config
+from audio_transport import AudioTransport, PlayerState
 
 logger = logging.getLogger(__name__)
 
 
-class PlayerState(Enum):
-    STOPPED = 0
-    PLAYING = 1
-    PAUSED = 2
-
-
-class BitPerfectPlayer:
+class BitPerfectPlayer(AudioTransport):
 
     def __init__(self, device: str = None):
         self.device = device or config.ALSA_DEVICE
@@ -101,8 +95,9 @@ class BitPerfectPlayer:
 
         return checks
 
-    def load_track(self, pcm_data: bytes):
-        logger.debug(f"PLAYER: load_track called, data size={len(pcm_data)} bytes")
+    def load_pcm_data(self, pcm_data: bytes):
+        """Load PCM audio data for playback. Used by controller after extraction."""
+        logger.debug(f"PLAYER: load_pcm_data called, data size={len(pcm_data)} bytes")
         start_time = time.time()
 
         self.stop()
@@ -293,9 +288,6 @@ class BitPerfectPlayer:
 
     def get_state(self) -> PlayerState:
         return self.state
-
-    def is_playing(self) -> bool:
-        return self.state == PlayerState.PLAYING
 
     def get_stats(self) -> dict:
         return {

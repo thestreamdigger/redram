@@ -36,16 +36,16 @@ class TerminalUI:
 
     def _progress_callback(self, track_num, total_tracks, status):
         if status == "waking":
-            print("\033[2m→ wake\033[0m")
+            print("\033[0;34m→ wake\033[0m")
         elif status == "detecting":
-            print("\033[2m→ detect\033[0m")
+            print("\033[0;34m→ detect\033[0m")
         elif status == "reading_toc":
-            print("\033[2m→ read\033[0m")
+            print("\033[0;34m→ read\033[0m")
         elif status == "error":
             print("\n\033[0;31m✗\033[0m insufficient ram\n")
         elif status == "extracting":
             if track_num > 0:
-                print(f"\033[2m→ {track_num:02d}/{total_tracks:02d}\033[0m" + " " * 20, end='\r')
+                print(f"\033[0;34m→ {track_num:02d}/{total_tracks:02d}\033[0m" + " " * 20, end='\r')
         elif status == "complete":
             print("\r" + " " * 50 + "\r", end='', flush=True)
 
@@ -63,7 +63,7 @@ class TerminalUI:
             state_symbol = {
                 PlayerState.PLAYING: "\033[0;32m▸\033[0m",
                 PlayerState.PAUSED: "\033[1;33m▍▍\033[0m",
-                PlayerState.STOPPED: "\033[2m■\033[0m"
+                PlayerState.STOPPED: "\033[0;31m■\033[0m"
             }.get(state, "?")
 
             indicators = []
@@ -99,7 +99,7 @@ class TerminalUI:
                 # Add streaming mode indicator
                 mode_indicator = ""
                 if self.controller.is_direct_mode:
-                    mode_indicator = " \033[0;35m[STREAM]\033[0m"
+                    mode_indicator = " \033[0;33m⚡\033[0m"
 
                 status_line = (
                     f"{state_symbol}  "
@@ -404,7 +404,7 @@ class TerminalUI:
                                 if level in config.EXTRACTION_LEVELS:
                                     extraction_level = level
                                 else:
-                                    print(f"\n\033[0;31m✗\033[0m invalid level {level} (use 1-3)\n")
+                                    print(f"\n\033[0;31m✗\033[0m invalid level {level} (use 0-3)\n")
                                     continue
                             except ValueError:
                                 print(f"\n\033[0;31m✗\033[0m invalid level '{args[0]}'\n")
@@ -420,7 +420,7 @@ class TerminalUI:
                                 continue
 
                         level_info = config.EXTRACTION_LEVELS[extraction_level]
-                        print(f"\n\033[2m→ loading (level {extraction_level}: {level_info['name']})\033[0m")
+                        print(f"\n\033[0;34m→ loading (level {extraction_level}: {level_info['name']})\033[0m")
                         success, status = self.controller.load(self._progress_callback, extraction_level)
                         if not success:
                             if status == "no_disc":
@@ -510,7 +510,7 @@ class TerminalUI:
                             print(f"\033[0;36mshuffle:\033[0m {status}")
 
                     elif cmd == "scan":
-                        print("\033[2m→ scanning cd\033[0m")
+                        print("\033[0;34m→ scanning cd\033[0m")
                         success, status = self.controller.scan()
                         if success:
                             tracks = self.controller.get_scanned_tracks()

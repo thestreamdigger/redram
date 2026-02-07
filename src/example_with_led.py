@@ -98,7 +98,7 @@ def main():
 
     finally:
         # Cleanup
-        print("\033[2m→ cleaning up\033[0m")
+        print("\033[0;34m→ cleaning up\033[0m")
         if led:
             led.cleanup()
         if gpio:

@@ -53,7 +53,18 @@ def get_audio_device_name(hw_device: str = None) -> str:
 
 
 CD_DEVICE = '/dev/sr0'
-ALSA_DEVICE = detect_audio_device()
+
+_ALSA_DEVICE = None
+
+
+def __getattr__(name):
+    global _ALSA_DEVICE
+    if name == 'ALSA_DEVICE':
+        if _ALSA_DEVICE is None:
+            _ALSA_DEVICE = detect_audio_device()
+        return _ALSA_DEVICE
+    raise AttributeError(f"module 'config' has no attribute {name}")
+
 
 RAM_PATH = '/mnt/cdram'
 RAM_SIZE = '1G'
@@ -88,7 +99,6 @@ LED_BRIGHTNESS = 50
 LED_CHANNEL = 0
 
 CDPARANOIA_PATH = '/usr/bin/cdparanoia'
-PARANOIA_MODE = 'never'
 RIP_SPEED_LIMIT = None
 CD_READ_OFFSET = 6
 

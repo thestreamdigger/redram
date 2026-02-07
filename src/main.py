@@ -109,11 +109,11 @@ examples:
         if errors:
             print("\033[0;31m✗ errors\033[0m")
             for error in errors:
-                print(f"\033[2m  →\033[0m {error}")
+                print(f"\033[0;34m  →\033[0m {error}")
         if warnings:
             print("\n\033[1;33m~ warnings\033[0m")
             for warning in warnings:
-                print(f"\033[2m  →\033[0m {warning}")
+                print(f"\033[0;34m  →\033[0m {warning}")
         if not errors and not warnings:
             print("\033[0;32m✓ all dependencies ok\033[0m")
         print()
@@ -122,14 +122,14 @@ examples:
     if errors:
         print("\033[0;31m✗ missing dependencies\033[0m")
         for error in errors:
-            print(f"\033[2m  →\033[0m {error}")
+            print(f"\033[0;34m  →\033[0m {error}")
         print("\n\033[2mrun 'sudo ./scripts/install.sh' to install dependencies\033[0m\n")
         sys.exit(1)
 
     if warnings:
         print("\033[1;33m~ warnings\033[0m")
         for warning in warnings:
-            print(f"\033[2m  →\033[0m {warning}")
+            print(f"\033[0;34m  →\033[0m {warning}")
         print()
 
     if args.verify:
